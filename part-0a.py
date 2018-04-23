@@ -8,20 +8,22 @@ import tensorflow as tf
 
 def build_model(x):
     model = tf.layers.Dense(10, activation=tf.nn.relu)(x)
-    # model = tf.layers.Dense(4)(model)
+    model = tf.layers.Dense(4)(model)
     return model
 
-x = tf.constant([[10]])
+x = tf.placeholder(shape=[None, 1], dtype=tf.int32)
 model = build_model(x)
-# model = tf.layers.Dense(10, activation=tf.nn.relu)(x)
 
 sess = tf.Session()
 
 init = tf.global_variables_initializer()
 
+model_inputs = [[0]]
+
 with tf.Session() as sess:
     sess.run(init)
-    print(sess.run(model))
+    out = sess.run(model, feed_dict={x: model_inputs})
+    print(out)
 
 exit(0)
 
