@@ -12,9 +12,10 @@ env = gym.make('FrozenLake-v0')
 
 def build_model(x):
     # model = tf.layers.Dense(10, activation=tf.nn.relu)(x)
-    # model = tf.layers.Dense(4)(model)
-    W = tf.Variable(tf.random_uniform([16,4],0,0.01))
-    model = tf.matmul(x,W)
+    model = tf.layers.dense(x, 4, use_bias=False,
+        kernel_initializer=tf.random_uniform_initializer(minval=0, maxval=0.01))
+    # model = tf.Variable(tf.random_uniform([16,4],0,0.01))
+    # model = tf.matmul(x, model)
     return model
 
 state = tf.placeholder(shape=[1], dtype=tf.int32)
@@ -34,7 +35,7 @@ init = tf.global_variables_initializer()
 # Set learning parameters
 y = .99
 e = 0.1
-num_episodes = 5000
+num_episodes = 2000
 #create lists to contain total rewards and steps per episode
 jList = []
 rList = []
@@ -48,7 +49,7 @@ with tf.Session() as sess:
     # print(out)
 
     for i in range(num_episodes):
-        #Reset environment and get first new observation
+        # Reset environment and get first new observation
         s = env.reset()
         rAll = 0
         d = False
