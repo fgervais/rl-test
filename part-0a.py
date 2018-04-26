@@ -8,12 +8,14 @@ np.random.seed(1)
 
 
 env = gym.make('FrozenLake-v0')
+env.seed(1)
 
 
 def build_model(x):
     # model = tf.layers.Dense(10, activation=tf.nn.relu)(x)
-    model = tf.layers.dense(x, 4, use_bias=False,
-        kernel_initializer=tf.random_uniform_initializer(minval=0, maxval=0.01))
+    model = tf.layers.Dense(4, use_bias=False,
+        kernel_initializer=
+            tf.random_uniform_initializer(minval=0, maxval=0.01))(x)
     # model = tf.Variable(tf.random_uniform([16,4],0,0.01))
     # model = tf.matmul(x, model)
     return model
