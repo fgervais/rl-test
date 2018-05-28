@@ -51,6 +51,8 @@ class Agent:
     def _build_model(self, x, number_of_outputs):
         model = tf.layers.Dense(
             number_of_outputs,
+            use_bias=False,
+            kernel_initializer=tf.initializers.ones(),
             activation=tf.nn.relu)(x)
 
         # model = tf.layers.Dense(len(bandits), use_bias=False,
@@ -110,7 +112,7 @@ init = tf.global_variables_initializer()
 with tf.Session() as sess:
     sess.run(init)
 
-    for _ in range(2000):
+    for _ in range(1000):
         chosen_bandit_number = np.random.randint(0, len(bandits))
         agent.play(bandits[chosen_bandit_number], sess)
 
@@ -118,3 +120,5 @@ with tf.Session() as sess:
     print("------------------")
     for i, bandit in enumerate(bandits):
         print("bandit {}: {}".format(i, agent.get_weights(i, sess)))
+        print("  The best arm is: {}".format(
+            np.argmax(agent.get_weights(i, sess))))
