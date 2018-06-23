@@ -3,8 +3,8 @@ import tensorflow as tf
 import gym
 import pprint
 
-tf.set_random_seed(1)
-np.random.seed(1)
+tf.set_random_seed(0)
+np.random.seed(0)
 
 
 class ExperienceTrace:
@@ -69,11 +69,15 @@ class Agent:
         self.reward_holder = tf.placeholder(shape=[None, 1], dtype=tf.float32)
         self.action_holder = tf.placeholder(shape=[None, 1], dtype=tf.int32)
 
-        responsible_weight = self.output[::,self.action_holder]
-        loss = -(tf.log(responsible_weight) * self.reward_holder)
+        row_index = tf.range(tf.shape(self.action_holder)[0])[:, tf.newaxis]
+        full_indices = tf.stack([row_index, self.action_holder], axis=2)
+        responsible_outputs = tf.gather_nd(self.output, full_indices)
+
+        # self.loss = -(tf.log(responsible_outputs) * self.reward_holder)
+        self.loss = -tf.reduce_mean(tf.log(responsible_outputs) * self.reward_holder)
 
         optimizer = tf.train.GradientDescentOptimizer(learning_rate)
-        self.update = optimizer.minimize(loss)
+        self.update = optimizer.minimize(self.loss)
 
     def _build_model(self, x, number_of_outputs):
         model = tf.layers.Dense(
@@ -109,11 +113,11 @@ class Agent:
         if np.random.rand(1) < self.e:
             action = env.action_space.sample()
         else:
-            print("Using action from model")
+            # print("Using action from model")
             action = tf_session.run(tf.squeeze(self.chosen_action),
                     feed_dict={self.state_holder: [self.state]})
 
-        #env.render()
+        # env.render()
         state, reward, done, info = env.step(action)
 
         self.experience.add(self.state, action, reward)
@@ -125,17 +129,21 @@ class Agent:
             actions = self.experience.actions
             rewards = self.experience.discounted_sum_rewards
 
-            pprint.pprint(states)
-            pprint.pprint(actions)
-            pprint.pprint(rewards)
+            # pprint.pprint(states)
+            # pprint.pprint(actions)
+            # pprint.pprint(rewards)
+
+            print(np.sum(rewards))
 
             # for i in range(len(self.experience)):
-            _ = tf_session.run(self.update,
+            _, loss = tf_session.run([self.update, self.loss],
                     feed_dict={
                         self.state_holder: states,
                         self.action_holder: actions,
                         self.reward_holder: rewards
                     })
+
+            pprint.pprint(loss)
 
             self.state = None
             self.experience.flush()
@@ -162,6 +170,7 @@ agent = Agent(learning_rate=1e-2,
               number_of_actions=2)
 
 env = gym.make('CartPole-v0')
+env.seed(0)
 
 init = tf.global_variables_initializer()
 
