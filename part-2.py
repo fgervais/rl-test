@@ -114,8 +114,6 @@ class Agent:
 
         self.supervisor = Supervisor(average_windows_size=1000)
 
-        self.episode_number = 1
-
         self.state_holder = tf.placeholder(shape=[None, number_of_states],
                                             dtype=tf.float32)
 
@@ -180,7 +178,7 @@ class Agent:
         self.experience.add(self.state, action, reward)
 
         if done:
-            if (self.episode_number % 1) == 0:
+            if (self.supervisor.episode_count % 1) == 0:
                 states = self.experience.states
                 actions = self.experience.actions
                 rewards = self.experience.discounted_sum_rewards
