@@ -4,8 +4,61 @@ import gym
 import pprint
 import argparse
 
+
 tf.set_random_seed(0)
 np.random.seed(0)
+
+
+class Supervisor:
+    def __init__(self,
+                 average_windows_size,
+                 render_reward_factor=2,
+                 render_streak_size=10):
+        self.average_windows_size = average_windows_size
+        self.render_streak_size = render_streak_size
+        self.render_reward_factor = render_reward_factor
+
+        self.render_reward_threshold = 1
+        self.episode_render_remaining = 0
+
+        self.episodes_reward = []
+        self.average_reward = 0
+
+        self.episode_count = 1
+
+    def _update_average_reward(self):
+        last_reward_samples = self.episodes_reward[
+                                    -self.average_windows_size:]
+        self.average_reward = (np.sum(last_reward_samples)
+                                    / len(last_reward_samples))
+
+    def episode_reward(self, reward):
+        self.episodes_reward.append(reward)
+        self._update_average_reward()
+
+    def sparingly_render(self, env):
+        if self.episode_render_remaining == 0:
+            if self.average_reward >= self.render_reward_threshold:
+                self.episode_render_remaining = self.render_streak_size
+                self.render_reward_threshold = (self.average_reward
+                                                * self.render_reward_factor)
+
+        if self.episode_render_remaining > 0:
+            env.render()
+
+    def episode_done(self):
+        self.episode_count += 1
+
+        if self.episode_render_remaining > 0:
+            self.episode_render_remaining -= 1
+
+    def summary(self):
+        print(("\rEpisode {:>6}"
+                + " | Average reward: {:>6.0f}"
+                + " | Next render at: {:>6.0f}").format(
+                    self.episode_count,
+                    self.average_reward,
+                    self.render_reward_threshold), end="")
 
 
 class ExperienceTrace:
@@ -59,11 +112,9 @@ class Agent:
         self.experience = ExperienceTrace(0.99)
         self.state = None
 
-        self.reward_per_episode = []
-        self.episode_number = 1
+        self.supervisor = Supervisor(average_windows_size=1000)
 
-        self.watch_episodes = 10
-        self.watch_reward_threshold = 0
+        self.episode_number = 1
 
         self.state_holder = tf.placeholder(shape=[None, number_of_states],
                                             dtype=tf.float32)
@@ -81,8 +132,8 @@ class Agent:
         self.responsible_outputs = tf.gather_nd(self.output, full_indices)
 
         # self.loss = -(tf.log(responsible_outputs) * self.reward_holder)
-        self.policy = tf.log(self.responsible_outputs) * self.reward_holder
-        self.loss = -tf.reduce_mean(self.policy)
+        self.loss = -tf.reduce_mean(tf.log(self.responsible_outputs) 
+                                        * self.reward_holder)
 
         # optimizer = tf.train.GradientDescentOptimizer(learning_rate)
         optimizer = tf.train.AdamOptimizer(learning_rate)
@@ -108,30 +159,11 @@ class Agent:
 
         return model
 
-    def running_mean(self, x, N):
-        cumsum = np.cumsum(np.insert(x, 0, 0))
-        return (cumsum[N:] - cumsum[:-N]) / float(N)
-
     def play(self, env, tf_session):
         if self.state is None:
             self.state = env.reset()
 
 
-        # output = tf_session.run(self.output,
-        #             feed_dict={self.state_holder: [self.state, self.state]})
-        # print(output)
-        # exit(0)
-
-
-        # if np.random.rand(1) < self.e:
-        #     action = env.action_space.sample()
-        # else:
-        #     # print("Using action from model")
-        #     action = tf_session.run(self.chosen_action,
-        #             feed_dict={self.state_holder: [self.state]})
-        #     action = np.squeeze(action)
-
-        # a_dist = sess.run(myAgent.output,feed_dict={myAgent.state_in:[s]})
         output = tf_session.run(self.output,
                     feed_dict={self.state_holder: [self.state]})
         squeezed_output = np.squeeze(output)
@@ -140,15 +172,14 @@ class Agent:
         action = np.argmax(output == chosen_output_value)
 
         # print("Action: {}".format(action))
-        if self.watch_episodes:
-            env.render()
+
+        self.supervisor.sparingly_render(env)
+
         state, reward, done, info = env.step(action)
 
         self.experience.add(self.state, action, reward)
 
         if done:
-            print("done. Did {} steps".format(len(self.experience)))
-
             if (self.episode_number % 1) == 0:
                 states = self.experience.states
                 actions = self.experience.actions
@@ -158,40 +189,25 @@ class Agent:
                 # pprint.pprint(actions)
                 # pprint.pprint(rewards)
 
-                self.reward_per_episode.append(np.sum(rewards))
-                running_mean_array = self.running_mean(
-                                            self.reward_per_episode, 100)
-                if len(running_mean_array) > 0:
-                    current_running_mean = running_mean_array[-1]
-                else:
-                    current_running_mean = 0
-                print(current_running_mean)
+                self.supervisor.episode_reward(np.sum(rewards))
 
-                if not self.watch_episodes:
-                    if current_running_mean > self.watch_reward_threshold:
-                        self.watch_episodes = 10
-                        self.watch_reward_threshold = current_running_mean * 2
+                self.supervisor.summary()
 
-
-                _, policy, loss = tf_session.run(
-                        [self.update, self.policy, self.loss],
+                _, loss = tf_session.run(
+                        [self.update, self.loss],
                         feed_dict={
                             self.state_holder: states,
                             self.action_holder: actions,
                             self.reward_holder: rewards
                         })
 
-                # pprint.pprint(policy)
                 # pprint.pprint(loss)
 
                 self.experience.flush()
 
-                if self.watch_episodes:
-                    self.watch_episodes -= 1
-
 
             self.state = None
-            self.episode_number += 1
+            self.supervisor.episode_done()
 
             return False
         else:
@@ -243,9 +259,4 @@ with tf.Session(config=config) as sess:
         while agent.play(env, sess):
             pass
 
-
-    # print("------------------")
-    # for i, bandit in enumerate(bandits):
-    #     print("bandit {}: {}".format(i, agent.get_weights(i, sess)))
-    #     print("  The best arm is: {}".format(
-    #         np.argmax(agent.get_weights(i, sess))))
+    print()
