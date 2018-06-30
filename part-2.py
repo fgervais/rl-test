@@ -3,6 +3,7 @@ import tensorflow as tf
 import gym
 import pprint
 import argparse
+import signal
 
 
 tf.set_random_seed(0)
@@ -171,7 +172,9 @@ class Agent:
 
         # print("Action: {}".format(action))
 
-        self.supervisor.sparingly_render(env)
+        # self.supervisor.sparingly_render(env)
+        if rendering_enabled:
+            env.render()
 
         state, reward, done, info = env.step(action)
 
@@ -228,17 +231,25 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-e", "--episodes", type=int, required=True)
 args = parser.parse_args()
 
+rendering_enabled = False
+
+def receive_signal(signum, stack):
+    global rendering_enabled
+
+    rendering_enabled = not rendering_enabled
+
+signal.signal(signal.SIGUSR1, receive_signal)
+
 agent = Agent(learning_rate=0.001,
               e=0.3,
               number_of_states=4,
               number_of_actions=2)
 
-
 gym.envs.register(
     id='CartPoleMoreSteps-v0',
     entry_point='gym.envs.classic_control:CartPoleEnv',
-    max_episode_steps=200 * 100,
-    reward_threshold=195.0 * 100
+    max_episode_steps=None,
+    reward_threshold=None
 )
 env = gym.make('CartPoleMoreSteps-v0')
 # env = gym.make('CartPole-v0')
@@ -253,8 +264,12 @@ config = None
 with tf.Session(config=config) as sess:
     sess.run(init)
 
-    for _ in range(args.episodes):
-        while agent.play(env, sess):
-            pass
+    while True:
+        agent.play(env, sess)
+
+        if args.episodes < 0:
+            continue
+        elif agent.monitor.episode_count >= args.episodes:
+            break
 
     print()
