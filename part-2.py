@@ -4,6 +4,10 @@ import gym
 import pprint
 import argparse
 import signal
+import io
+import imageio
+
+import matplotlib.pyplot as plt
 
 
 tf.set_random_seed(0)
@@ -12,20 +16,15 @@ np.random.seed(0)
 
 class Supervisor:
     def __init__(self,
-                 average_windows_size,
-                 render_reward_factor=2,
-                 render_streak_size=10):
+                 average_windows_size):
         self.average_windows_size = average_windows_size
-        self.render_streak_size = render_streak_size
-        self.render_reward_factor = render_reward_factor
-
-        self.render_reward_threshold = 1
-        self.episode_render_remaining = 0
 
         self.episodes_reward = []
         self.average_reward = 0
 
         self.episode_count = 1
+
+        self.last_episode_render = None
 
     def _update_average_reward(self):
         last_reward_samples = self.episodes_reward[
@@ -37,29 +36,14 @@ class Supervisor:
         self.episodes_reward.append(reward)
         self._update_average_reward()
 
-    def sparingly_render(self, env):
-        if self.episode_render_remaining == 0:
-            if self.average_reward >= self.render_reward_threshold:
-                self.episode_render_remaining = self.render_streak_size
-                self.render_reward_threshold = (self.average_reward
-                                                * self.render_reward_factor)
-
-        if self.episode_render_remaining > 0:
-            env.render()
-
     def episode_done(self):
         self.episode_count += 1
 
-        if self.episode_render_remaining > 0:
-            self.episode_render_remaining -= 1
-
     def summary(self):
         print(("\rEpisode {:>6}"
-                + " | Average reward: {:>6.0f}"
-                + " | Next render at: {:>6.0f}").format(
+                + " | Average reward: {:>6.0f}").format(
                     self.episode_count,
-                    self.average_reward,
-                    self.render_reward_threshold), end="")
+                    self.average_reward), end="")
 
 
 class ExperienceTrace:
@@ -162,6 +146,8 @@ class Agent:
         if self.state is None:
             self.state = env.reset()
 
+            self.render_frames = []
+
 
         output = tf_session.run(self.output,
                     feed_dict={self.state_holder: [self.state]})
@@ -172,9 +158,10 @@ class Agent:
 
         # print("Action: {}".format(action))
 
-        # self.supervisor.sparingly_render(env)
+        rendering_enabled = True
         if rendering_enabled:
-            env.render()
+            # env.render()
+            self.render_frames.append(env.render(mode='rgb_array'))
 
         state, reward, done, info = env.step(action)
 
@@ -206,6 +193,12 @@ class Agent:
 
                 self.experience.flush()
 
+
+            self.supervisor.last_episode_render = io.BytesIO()
+            imageio.mimsave(self.supervisor.last_episode_render,
+                            self.render_frames,
+                            duration=0.05,
+                            format='GIF')
 
             self.state = None
             self.supervisor.episode_done()
@@ -270,8 +263,15 @@ with tf.Session(config=config) as sess:
         while agent.play(env, sess):
             pass
 
-        summary = tf.Summary(value=[tf.Summary.Value(tag="average_reward",
-                                simple_value=agent.supervisor.average_reward)])
+        summary = tf.Summary()
+
+        summary.value.add(tag="average_reward",
+            simple_value=agent.supervisor.average_reward)
+
+        image = tf.Summary.Image()
+        image.encoded_image_string = agent.supervisor.last_episode_render.getvalue()
+        summary.value.add(tag="render", image=image)
+
         writer.add_summary(summary, agent.supervisor.episode_count)
 
         if args.episodes < 0:
