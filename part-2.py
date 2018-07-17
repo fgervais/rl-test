@@ -257,19 +257,27 @@ env.seed(0)
 
 init = tf.global_variables_initializer()
 
-# config = tf.ConfigProto(
-#         device_count = {'GPU': 0}
-#     )
-config = None
+config = tf.ConfigProto(
+        device_count = {'GPU': 0}
+    )
+# config = None
 with tf.Session(config=config) as sess:
     sess.run(init)
 
+    writer = tf.summary.FileWriter("logs", sess.graph)
+
     while True:
-        agent.play(env, sess)
+        while agent.play(env, sess):
+            pass
+
+        summary = tf.Summary(value=[tf.Summary.Value(tag="average_reward",
+                                simple_value=agent.supervisor.average_reward)])
+        writer.add_summary(summary, agent.supervisor.episode_count)
 
         if args.episodes < 0:
             continue
-        elif agent.monitor.episode_count >= args.episodes:
+        elif agent.supervisor.episode_count >= args.episodes:
+            writer.close()
             break
 
     print()
