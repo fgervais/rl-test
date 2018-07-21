@@ -13,6 +13,8 @@ import matplotlib.pyplot as plt
 tf.set_random_seed(0)
 np.random.seed(0)
 
+RENDER_EVERY_EPISODES = 200
+
 
 class Supervisor:
     def __init__(self,
@@ -22,7 +24,7 @@ class Supervisor:
         self.episodes_reward = []
         self.average_reward = 0
 
-        self.episode_count = 1
+        self.episode_count = -1
 
         self.last_episode_render = None
 
@@ -36,8 +38,16 @@ class Supervisor:
         self.episodes_reward.append(reward)
         self._update_average_reward()
 
-    def episode_done(self):
+    @property
+    def last_episode_reward(self):
+        return self.episodes_reward[-1]
+
+    def episode_start(self):
+        self.last_episode_render = None
         self.episode_count += 1
+
+    def episode_done(self):
+        pass
 
     def summary(self):
         print(("\rEpisode {:>6}"
@@ -90,9 +100,8 @@ class ExperienceTrace:
 
 
 class Agent:
-    def __init__(self, learning_rate, e, number_of_states, number_of_actions):
+    def __init__(self, learning_rate, number_of_states, number_of_actions):
         self.learning_rate = learning_rate
-        self.e = e
 
         self.experience = ExperienceTrace(0.99)
         self.state = None
@@ -148,6 +157,8 @@ class Agent:
 
             self.render_frames = []
 
+            self.supervisor.episode_start()
+
 
         output = tf_session.run(self.output,
                     feed_dict={self.state_holder: [self.state]})
@@ -158,9 +169,7 @@ class Agent:
 
         # print("Action: {}".format(action))
 
-        rendering_enabled = True
-        if rendering_enabled:
-            # env.render()
+        if (self.supervisor.episode_count % RENDER_EVERY_EPISODES) == 0:
             self.render_frames.append(env.render(mode='rgb_array'))
 
         state, reward, done, info = env.step(action)
@@ -193,12 +202,12 @@ class Agent:
 
                 self.experience.flush()
 
-
-            self.supervisor.last_episode_render = io.BytesIO()
-            imageio.mimsave(self.supervisor.last_episode_render,
-                            self.render_frames,
-                            duration=0.05,
-                            format='GIF')
+            if self.render_frames:
+                self.supervisor.last_episode_render = io.BytesIO()
+                imageio.mimsave(self.supervisor.last_episode_render,
+                                self.render_frames,
+                                format='GIF',
+                                fps=60)
 
             self.state = None
             self.supervisor.episode_done()
@@ -224,17 +233,16 @@ parser = argparse.ArgumentParser()
 parser.add_argument("-e", "--episodes", type=int, required=True)
 args = parser.parse_args()
 
-rendering_enabled = False
+interactive_mode = False
 
 def receive_signal(signum, stack):
-    global rendering_enabled
+    global interactive_mode
 
-    rendering_enabled = not rendering_enabled
+    interactive_mode = not interactive_mode
 
 signal.signal(signal.SIGUSR1, receive_signal)
 
 agent = Agent(learning_rate=0.001,
-              e=0.3,
               number_of_states=4,
               number_of_actions=2)
 
@@ -265,12 +273,20 @@ with tf.Session(config=config) as sess:
 
         summary = tf.Summary()
 
-        summary.value.add(tag="average_reward",
+        summary.value.add(tag="reward",
+            simple_value=agent.supervisor.last_episode_reward)
+        summary.value.add(tag="reward (average)",
             simple_value=agent.supervisor.average_reward)
 
-        image = tf.Summary.Image()
-        image.encoded_image_string = agent.supervisor.last_episode_render.getvalue()
-        summary.value.add(tag="render", image=image)
+        if agent.supervisor.last_episode_render:
+            summary.value.add(tag="reward (image)",
+                simple_value=agent.supervisor.last_episode_reward)
+
+            image = tf.Summary.Image()
+            image.encoded_image_string = (
+                agent.supervisor.last_episode_render.getvalue()
+            )
+            summary.value.add(tag="render", image=image)
 
         writer.add_summary(summary, agent.supervisor.episode_count)
 
